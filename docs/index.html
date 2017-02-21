@@ -1,0 +1,202 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>Akka Streams - Stages</title>
+
+		<link rel="stylesheet" href="css/reveal.css">
+		<link rel="stylesheet" href="css/theme/white.css">
+
+		<!-- Theme used for syntax highlighting of code -->
+		<link rel="stylesheet" href="lib/css/zenburn.css">
+
+		<!-- Printing and PDF exports -->
+		<script>
+			var link = document.createElement( 'link' );
+			link.rel = 'stylesheet';
+			link.type = 'text/css';
+			link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+			document.getElementsByTagName( 'head' )[0].appendChild( link );
+		</script>
+
+		<script src="https://use.fontawesome.com/685eb64167.js"></script>
+	</head>
+	<body>
+		<div class="reveal">
+			<div class="slides">
+				<section>
+				<section>
+						<h1>On Akka Streams Stages</h1>
+						<p>Stefano Bonetti | @sbonetti</p>
+				</section>
+				<section data-markdown>
+					<script type="text/template">
+						#(GRAPH) STAGES
+Reusable building blocks
+
+1. shape
+
+2. logic
+
+3. materialized value
+					</script>
+				</section>
+			</section>
+
+				<section>
+					<section data-markdown>
+						<script type="text/template">
+							##SHAPE (BLUEPRINT)
+
+							<pre>
+								<code data-trim data-noescape class="hljs scala">
+abstract class Shape {
+
+  def inlets: immutable.Seq[Inlet[_]]
+
+  def outlets: immutable.Seq[Outlet[_]]
+
+  ...
+}
+								</code>
+							</pre>
+						</script>
+					</section>
+					<section data-markdown>
+						<script type="text/template">
+							| Type of stage | Shape       | Inlets | Outlets |
+							|---------------|-------------|:------:|:-------:|
+							| Source        | SourceShape | 0      | 1       |
+							| Sink          | SinkShape   | 1      | 0       |
+							| Flow          | FlowShape   | 1      | 1       |
+							| Broadcast     | FanOutShape | 1      | N       |
+							| Merge         | FanInShape  | N      | 1       |
+							| ...           | ...         | ...    | ...     |
+							| RunnableGraph | ClosedShape | 0      | 0       |
+						</script>
+					</section>
+					<section data-markdown>
+						<script type="text/template">
+							##Shapes arithmetic
+							<pre>
+			Source    + Flow          = Source
+			Flow      + Sink          = Sink
+			Flow      + Flow          = Flow
+			Broadcast + Merge         = Flow
+			Source    + Sink          = RunnableGraph
+			Source    + Flow   + Sink = RunnableGraph
+							</pre>
+						</script>
+					</section>
+
+					<section data-markdown>
+						<script type="text/template">
+							##Keep in mind
+- stages are immutable and reusable
+- only `RunnableGraph`s can be `run()`
+						</script>
+					</section>
+				</section>
+
+				<section>
+					<section data-markdown>
+						<script type="text/template">
+							##LOGIC
+
+- provided by callbacks attached to inlets/outlets
+
+- `InHandler` for inlets (`onPush()`)
+
+- `OutHandler` for outlets (`onPull()`)
+
+- example: [Map](https://github.com/akka/akka/blob/master/akka-stream/src/main/scala/akka/stream/impl/fusing/Ops.scala#L29) stage
+						</script>
+					</section>
+				</section>
+
+				<section>
+					<section data-markdown>
+						<script type="text/template">
+							##MATERIALIZED VALUE
+
+- Stage by-product **after** it's run
+
+- Every stage will produce one
+
+- It's the last type param of the stage
+						</script>
+					</section>
+					<section data-markdown>
+						<script type="text/template">
+							| Stage             | Type                            |
+							|-------------------|---------------------------------|
+							| `Source.single`   | `Source[T, NotUsed]`            |
+							| `Source.queue`    | `Source[T, SourceQueue[T]]`     |
+							| `Source.maybe`    | `Source[T, Promise[Option[T]]]` |
+							| `Source.actorRef` | `Source[T, ActorRef]`           |
+							| `Flow.map`        | `Flow[In, Out, NotUsed]`        |
+							| `Sink.foreach`    | `Sink[T, Future[Done]]`         |
+							| `Sink.seq`        | `Sink[T, Future[Seq[T]]]`       |
+						</script>
+					</section>
+					<section data-markdown>
+						<script type="text/template"><pre><code data-trim data-noescape class="hljs scala">
+Consumer.committableSource(...):
+		 Source[CommittableItem[T], Control]
+
+Http.outgoingConnection(...):
+     Flow[HttpRequest, HttpResponse, Future[Http.OutgoingConnection]]
+	 </code></pre></script>
+					</section>
+					<section data-markdown>
+						<script type="text/template"><pre><code data-trim data-noescape class="hljs scala">
+val matVal1 = Source.single(1)                  // NotUsed
+			       .to(Sink.foreach(println))  // Future[Done]
+			       .run() // will return NotUsed
+
+val matVal2 = Source.single(1)
+			       .toMat(Sink.foreach(println))(Keep.right)
+			       .run() // will return Future[Done]
+
+val matVal3 = Source.single(1)
+			       .toMat(Sink.foreach(println))(Keep.both)
+			       .run() // will return (NotUsed, Future[Done])
+					</code></pre></script>
+					</section>
+					<section data-markdown>
+						<script type="text/template"><pre><code data-trim data-noescape class="hljs scala">
+source.via(flow).to(sink)
+	 </code>
+                            ===
+ <code data-trim data-noescape class="hljs scala">
+source.viaMat(flow)(Keep.left).toMat(sink)(Keep.left)
+</code></pre></script>
+					</section>
+				</section>
+
+			</div>
+		</div>
+
+		<script src="lib/js/head.min.js"></script>
+		<script src="js/reveal.js"></script>
+
+		<script>
+			// More info https://github.com/hakimel/reveal.js#configuration
+			Reveal.initialize({
+				history: true,
+				transition: 'none',
+
+				// More info https://github.com/hakimel/reveal.js#dependencies
+				dependencies: [
+					{ src: 'plugin/markdown/marked.js' },
+					{ src: 'plugin/markdown/markdown.js' },
+					{ src: 'plugin/notes/notes.js', async: true },
+					{ src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } }
+				]
+			});
+
+		</script>
+	</body>
+</html>
